@@ -1,8 +1,11 @@
 ﻿using AnotherJiraRestClient.JiraModel;
 using RestSharp;
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
+using System.Text;
 
 namespace AnotherJiraRestClient
 {
@@ -41,8 +44,8 @@ namespace AnotherJiraRestClient
         {
             // Won't throw exception.
             var response = client.Execute<T>(request);
-
-            validateResponse(response);
+            
+            ValidateResponse(response);
 
             return response.Data;
         }
@@ -50,9 +53,8 @@ namespace AnotherJiraRestClient
         /// <summary>
         /// Throws exception with details if request was not unsucessful
         /// </summary>
-        /// <typeparam name="T"></typeparam>
         /// <param name="response"></param>
-        private static void validateResponse(IRestResponse response)
+        private static void ValidateResponse(IRestResponse response)
         {
             if (response.ResponseStatus != ResponseStatus.Completed || response.ErrorException != null || response.StatusCode == HttpStatusCode.BadRequest)
                 throw new JiraApiException(string.Format("RestSharp response status: {0} - HTTP response: {1} - {2} - {3}", response.ResponseStatus, response.StatusCode, response.StatusDescription, response.Content));
@@ -87,9 +89,11 @@ namespace AnotherJiraRestClient
         {
             var fieldsString = ToCommaSeparatedString(fields);
 
-            var request = new RestRequest();
-            request.Resource = string.Format("{0}?fields={1}", ResourceUrls.IssueByKey(issueKey), fieldsString);
-            request.Method = Method.GET;
+            var request = new RestRequest
+            {
+                Resource = string.Format("{0}?fields={1}", ResourceUrls.IssueByKey(issueKey), fieldsString),
+                Method = Method.GET
+            };
 
             var issue = Execute<Issue>(request, HttpStatusCode.OK);
             return issue.fields != null ? issue : null;
@@ -103,14 +107,16 @@ namespace AnotherJiraRestClient
         /// <returns>The search results</returns>
         public Issues GetIssuesByJql(string jql, int startAt, int maxResults, IEnumerable<string> fields = null)
         {
-            var request = new RestRequest();
-            request.Resource = ResourceUrls.Search();
+            var request = new RestRequest
+            {
+                Resource = ResourceUrls.Search()
+            };
             request.AddParameter(new Parameter()
-                {
-                    Name = "jql",
-                    Value = jql,
-                    Type = ParameterType.GetOrPost
-                });
+            {
+                Name = "jql",
+                Value = jql,
+                Type = ParameterType.GetOrPost
+            });
             request.AddParameter(new Parameter()
             {
                 Name = "fields",
@@ -168,9 +174,11 @@ namespace AnotherJiraRestClient
         /// <returns></returns>
         public List<Priority> GetPriorities()
         {
-            var request = new RestRequest();
-            request.Resource = ResourceUrls.Priority();
-            request.Method = Method.GET;
+            var request = new RestRequest
+            {
+                Resource = ResourceUrls.Priority(),
+                Method = Method.GET
+            };
             return Execute<List<Priority>>(request, HttpStatusCode.OK);
         }
 
@@ -186,11 +194,11 @@ namespace AnotherJiraRestClient
             var request = new RestRequest();
             request.Resource = ResourceUrls.CreateMeta();
             request.AddParameter(new Parameter()
-              {
-                  Name = "projectKeys",
-                  Value = projectKey,
-                  Type = ParameterType.GetOrPost
-              });
+            {
+                Name = "projectKeys",
+                Value = projectKey,
+                Type = ParameterType.GetOrPost
+            });
             request.Method = Method.GET;
             var createMeta = Execute<IssueCreateMeta>(request, HttpStatusCode.OK);
             if (createMeta.projects[0].key != projectKey || createMeta.projects.Count != 1)
@@ -206,9 +214,11 @@ namespace AnotherJiraRestClient
         /// <returns></returns>
         public List<Status> GetStatuses()
         {
-            var request = new RestRequest();
-            request.Resource = ResourceUrls.Status();
-            request.Method = Method.GET;
+            var request = new RestRequest
+            {
+                Resource = ResourceUrls.Status(),
+                Method = Method.GET
+            };
             return Execute<List<Status>>(request, HttpStatusCode.OK);
         }
 
@@ -295,7 +305,7 @@ namespace AnotherJiraRestClient
         /// <param name="issuekey"></param>
         /// <param name="orginialEstimateMinutes"></param>
         /// <param name="remainingEstimateMinutes"></param>
-        /// <returns></returns>
+        /// <returns>Returns true for an acceptable status</returns>
         public bool UpdateTimetracking(string issuekey, int orginialEstimateMinutes, int remainingEstimateMinutes)
         {
             var request = new RestRequest()
@@ -320,8 +330,8 @@ namespace AnotherJiraRestClient
                             edit = new
                             {
                                 // No entry in seconds possible apparently
-                                originalEstimate = string.Format("{0}m", orginialEstimateMinutes),
-                                remainingEstimate= string.Format("{0}m", remainingEstimateMinutes)
+                                originalEstimate    = string.Format("{0}m", orginialEstimateMinutes),
+                                remainingEstimate   = string.Format("{0}m", remainingEstimateMinutes)
                             }
                         }}
                     }
@@ -331,9 +341,112 @@ namespace AnotherJiraRestClient
             // No response expected
             var response = client.Execute(request);
 
-            validateResponse(response);
+            ValidateResponse(response);
 
             return response.StatusCode == HttpStatusCode.NoContent;
+        }
+
+        /// <summary>
+        /// Update the worklog for a jira issue
+        /// </summary> 
+        public Worklog AddWorkLog(string issuekey, string timeSpentFormatted, string userComment)
+        {
+            var request = new RestRequest()
+            {
+                Resource = string.Format("{0}", ResourceUrls.IssueByKey(issuekey)),
+                Method = Method.POST,
+                RequestFormat = DataFormat.Json
+            };
+
+            request.AddBody(
+                new
+                {
+                    update = new
+                    {
+                        worklog = new object[] { new
+                        {
+                                add = new
+                                {
+                                    comment = userComment,
+                                    timeSpent = timeSpentFormatted
+                                }
+                        } }
+                    }
+                }
+                );
+
+            // No response expected
+            var response = client.Execute(request);
+            ValidateResponse(response);
+
+            //TODO Cleanup
+            //var response = Execute<Worklogs>(request, HttpStatusCode.OK);
+            //Console.WriteLine(response.worklogs.Count);
+
+            var worklog = GetWorklogs(issuekey);
+
+            return worklog.worklogs[worklog.worklogs.Count - 1];
+        }
+
+
+        public Worklogs GetWorklogs(string issuekey)
+        {
+            var worklogRequest = new RestRequest()
+            {
+                Resource = string.Format("{0}", ResourceUrls.Worklog(issuekey)),
+                Method = Method.GET,
+                RequestFormat = DataFormat.Json
+            };
+
+            return Execute<Worklogs>(worklogRequest, HttpStatusCode.OK);
+        }
+
+
+        public Worklog GetWorklogById(string issuekey, string id)
+        {
+            var worklogRequest = new RestRequest()
+            {
+                Resource = string.Format("{0}", ResourceUrls.WorklogById(issuekey, id)),
+                Method = Method.GET,
+                RequestFormat = DataFormat.Json
+            };
+
+            return Execute<Worklog>(worklogRequest, HttpStatusCode.OK);
+        }
+
+
+        public bool UpdateWorklogById(string issuekey, string id, string timeSpentFormatted, string userComment)
+        {
+            var request = new RestRequest()
+            {
+                Resource = string.Format("{0}", ResourceUrls.WorklogById(issuekey, id)),
+                Method = Method.PUT,
+                RequestFormat = DataFormat.Json
+            };
+
+            request.AddBody(
+                new
+                {
+                    update = new
+                    {
+                        worklog = new object[] { new
+                        {
+                                add = new
+                                {
+                                    comment = userComment,
+                                    timeSpent = timeSpentFormatted
+                                }
+                        } }
+                    }
+                }
+                );
+
+            // No response expected
+            var response = client.Execute(request);
+            ValidateResponse(response);
+
+            return response.StatusCode == HttpStatusCode.NoContent;
+
         }
     }
 }

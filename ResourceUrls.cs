@@ -51,6 +51,16 @@ namespace AnotherJiraRestClient
             return Url("project");
         }
 
+        public static string Worklog(string issueKey)
+        {
+            return Url(string.Format("issue/{0}/worklog", issueKey));
+        }
+
+        public static string WorklogById(string issueKey, string id)
+        {
+            return Url(string.Format("issue/{0}/worklog/{1}", issueKey, id));
+        }
+
         private static string Url(string key)
         {
             return Path.Combine(BaseUrl, key);

@@ -26,5 +26,18 @@ namespace AnotherJiraRestClient
         /// Jira server password
         /// </summary>
         public string Password { get; set; }
+
+        /// <summary>
+        /// Constructs a JiraAccount
+        /// </summary>
+        /// <param name="serverUrl">jira instance server address</param>
+        /// <param name="username">user's username</param>
+        /// <param name="password">user's password</param>
+        public JiraAccount(string serverUrl, string username, string password)
+        {
+            ServerUrl = serverUrl;
+            User = username;
+            Password = password;
+        }
     }
 }
